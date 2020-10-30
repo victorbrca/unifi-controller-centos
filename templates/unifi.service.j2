@@ -1,0 +1,14 @@
+[Unit]
+Description=UniFi AP Web Controller
+After=syslog.target network.target
+
+[Service]
+Type=simple
+User={{ unifi_user }}
+WorkingDirectory={{ unifi_base_dir }}/UniFi
+ExecStart=/usr/bin/java -Xmx1024M -jar /opt/UniFi/lib/ace.jar start
+ExecStop=/usr/bin/java -jar /opt/UniFi/lib/ace.jar stop
+SuccessExitStatus=143
+
+[Install]
+WantedBy=multi-user.target

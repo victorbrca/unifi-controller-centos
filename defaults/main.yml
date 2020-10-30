@@ -1,0 +1,16 @@
+---
+# defaults file for unifi-controller-centos
+
+unifi_user: ubnt
+unifi_base_dir: /opt
+unifi_install_dir: "{{ unifi_base_dir }}/UniFi"
+unifi_version: "6.0.28"
+unifi_package_dependencies:
+  - java-1.8.0-openjdk
+  - mongodb-org-server
+  - unzip
+  - wget
+backup_destination: /opt
+firewalld_enabled: true
+firewalld_zone: public
+firewalld_interface: eth1

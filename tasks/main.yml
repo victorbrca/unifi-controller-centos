@@ -1,0 +1,213 @@
+---
+# tasks file for unifi-controller-centos
+
+- name: Get timestamp from the system
+  shell: "date +%Y-%m-%d_%H%M%S"
+  register: tstamp
+  tags:
+    - upgrade
+
+- name: Checks if old mongodb (Epel) is installed
+  command: rpm -q mongodb-server
+  register: rpm_check
+  tags:
+    - install
+    - upgrade
+
+- name: Removes old mongodb (Epel)
+  yum: 
+    name: mongodb-server
+    state: absent
+  when: rpm_check.rc == 0 
+  tags:
+    - install
+    - upgrade
+
+- name: Installs the mongo-db repository
+  yum_repository:
+    name: mongodb-org-3.4
+    description: MongoDB Repository
+    baseurl: https://repo.mongodb.org/yum/redhat/$releasever/mongodb-org/3.4/x86_64/
+    gpgcheck: yes
+    gpgkey: https://www.mongodb.org/static/pgp/server-3.4.asc
+  tags:
+    - install
+    - upgrade
+
+- name: Installs required packages
+  yum:
+    name: "{{ unifi_package_dependencies }}"
+    state: present
+    update_cache: yes
+  tags:
+    - install
+    - upgrade
+
+- name: Creates the {{ unifi_user }} group
+  group:
+    name: "{{ unifi_user }}"
+    system: yes
+  tags:
+    - install
+
+- name: Creates the {{ unifi_user }}
+  user:
+    name: "{{ unifi_user }}"
+    group: "{{ unifi_user }}"
+    state: present
+    system: yes
+  tags:
+    - install
+    - upgrade
+
+- name: Downloads the latest install file
+  get_url:
+    url: "https://www.ubnt.com/downloads/unifi/{{ unifi_version }}/UniFi.unix.zip"
+    dest: /tmp/
+    force: yes
+  tags:
+    - install
+    - upgrade
+
+- name: Setup the systemd unit file
+  template:
+    src: unifi.service.j2
+    dest: /etc/systemd/system/unifi.service
+    backup: yes
+  tags: install
+
+- name: Stops the unifi service
+  systemd:
+    name: unifi.service
+    state: stopped
+  tags: upgrade
+
+- name: Backs up existing install
+  archive:
+    path: "{{ unifi_install_dir }}"
+    dest: "{{ backup_destination }}/unifi-full-install.{{ tstamp.stdout }}.zip"
+    format: zip
+    mode: 0755
+  tags: upgrade
+
+- name: Backs up existing data
+  archive:
+    path: "{{ unifi_install_dir }}/data"
+    dest: "{{ backup_destination }}/unifi-data.{{ tstamp.stdout }}.zip"
+    format: zip
+    mode: 0755
+  tags: upgrade
+
+- name: Deletes existing install
+  file:
+    path: "{{ unifi_install_dir }}"
+    state: absent
+  tags: upgrade
+
+- name: Unpacks the install
+  unarchive:
+    src: /tmp/UniFi.unix.zip
+    dest: "{{ unifi_base_dir }}/"
+    owner: "{{ unifi_user }}"
+    group: "{{ unifi_user }}"
+    mode: 0755
+    remote_src: yes
+  tags:
+    - install
+    - upgrade
+
+- name: Restores the data backup
+  unarchive:
+    src: "{{ backup_destination }}/unifi-data.{{ tstamp.stdout }}.zip"
+    dest: "{{ unifi_install_dir }}/"
+    owner: "{{ unifi_user }}"
+    group: "{{ unifi_user }}"
+    mode: 0755
+    remote_src: yes
+  tags:
+    - upgrade
+
+- name: Stops the firewalld service
+  service: name=firewalld.service state=stopped
+  become: yes
+  when:
+    - firewalld_enabled == true
+  tags:
+    - install
+
+- name: Sets up the firewalld service file
+  copy:
+    src: unifi.xml 
+    dest: /etc/firewalld/services/unifi.xml
+    owner: root                            
+    group: root                           
+    mode: 0755                            
+  when:
+    - firewalld_enabled == true
+  tags: install
+
+- name: Starts the firewalld service
+  service: name=firewalld.service state=started
+  become: yes
+  when:
+    - firewalld_enabled == true
+  tags: install
+
+- name: "Adds the default interface to the {{ firewalld_zone }} zone"
+  firewalld:
+    zone: "{{ firewalld_zone }}"
+    interface: "{{ firewalld_interface }}"
+    permanent: yes
+    state: enabled
+  when:
+    - firewalld_enabled == true
+  tags: 
+    - install
+
+- name: "Adds the service to the {{ firewalld_zone }} zone"
+  firewalld:
+    zone: "{{ firewalld_zone }}"
+    service: unifi
+    permanent: yes
+    state: enabled
+  when:
+    - firewalld_enabled == true
+  tags:
+    - install
+
+- name: Reloads firewalld
+  command: firewall-cmd --reload
+  when:
+    - firewalld_enabled == true
+  tags: 
+    - install
+
+- name: Restarts the MongoDB service
+  systemd:
+    name: mongod.service
+    state: restarted
+    enabled: yes
+    daemon_reload: yes
+  become: yes
+  tags:
+    - install
+    - upgrade
+
+- name: Restarts the unifi service
+  systemd:
+    name: unifi.service
+    state: restarted
+    enabled: yes
+    daemon_reload: yes
+  become: yes
+  tags:
+    - install
+    - upgrade
+
+- name: Deletes the install file
+  file:
+    path: /tmp/UniFi.unix.zip
+    state: absent
+  tags:
+    - install
+    - upgrade
